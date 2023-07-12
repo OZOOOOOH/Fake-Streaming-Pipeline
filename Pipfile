@@ -1,0 +1,18 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+pyspark = "==3.4.1"
+pandas = "==2.0.3"
+faker = "==19.0.0"
+kafka-python = "==2.0.2"
+pytest = "==7.4.0"
+pre-commit = "==3.3.3"
+
+[dev-packages]
+ipykernel = "*"
+
+[requires]
+python_version = "3.10"
