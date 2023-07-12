@@ -17,7 +17,7 @@ def generate_user(fake) -> dict[str, str]:
 
 
 def load_dataset() -> pd.DataFrame:
-    df = pd.read_csv(f"{Path(__file__).parent.parent}/faker_music/dataset.csv")
+    df = pd.read_csv(f"{Path(__file__).parent.parent}/data/dataset.csv")
     selected_columns = [
         "artists",
         "album_name",
