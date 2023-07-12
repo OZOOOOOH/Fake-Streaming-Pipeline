@@ -1,5 +1,6 @@
 import json
 import time
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 import pandas as pd
@@ -7,7 +8,7 @@ from faker import Faker
 from kafka import KafkaProducer
 
 
-def generate_user(fake) -> dict[str, str]:
+def generate_user(fake: Faker) -> dict[str, str]:
     return {
         "name": fake.name(),
         "address": fake.address(),
@@ -17,7 +18,7 @@ def generate_user(fake) -> dict[str, str]:
 
 
 def load_dataset() -> pd.DataFrame:
-    df = pd.read_csv(f"{Path(__file__).parent.parent}/faker_music/dataset.csv")
+    df = pd.read_csv(f"{Path(__file__).parent.parent}/data/dataset.csv")
     selected_columns = [
         "artists",
         "album_name",
@@ -34,10 +35,7 @@ def pick_song(songs: pd.DataFrame) -> dict[str, str]:
     return song
 
 
-if __name__ == "__main__":
-    fake = Faker()
-    spotify_songs = load_dataset()
-
+def send_msg(fake: Faker, spotify_songs: pd.DataFrame):
     producer = KafkaProducer(
         bootstrap_servers="localhost:9092",
         value_serializer=lambda v: json.dumps(v).encode("utf-8"),
@@ -52,3 +50,18 @@ if __name__ == "__main__":
             "played_at": str(time.time()),
         }
         producer.send("spotify_streaming_topic", value=data)
+
+
+if __name__ == "__main__":
+    num_workers = 3
+    fake = Faker()
+    spotify_songs = load_dataset()
+
+    producer = KafkaProducer(
+        bootstrap_servers="localhost:9092",
+        value_serializer=lambda v: json.dumps(v).encode("utf-8"),
+    )
+
+    with ProcessPoolExecutor(max_workers=num_workers) as exe:
+        for _ in range(num_workers):
+            exe.submit(send_msg, fake, spotify_songs)
