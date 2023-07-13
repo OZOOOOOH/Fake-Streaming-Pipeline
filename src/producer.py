@@ -1,5 +1,5 @@
 import json
-import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -49,6 +49,6 @@ if __name__ == "__main__":
         data = {
             "user": user,
             "song": song,
-            "played_at": str(time.time()),
+            "played_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
         }
         producer.send("spotify_streaming_topic", value=data)
