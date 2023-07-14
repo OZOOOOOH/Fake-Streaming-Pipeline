@@ -3,7 +3,7 @@ import os
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, from_json
 from pyspark.sql.types import (
-    DoubleType,
+    FloatType,
     IntegerType,
     StringType,
     StructField,
@@ -13,7 +13,7 @@ from pyspark.sql.types import (
 
 os.environ[
     "PYSPARK_SUBMIT_ARGS"
-] = "--packages org.apache.spark:spark-streaming-kafka-0-10_2.12:3.4.1,org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.1 pyspark-shell"
+] = "--packages org.apache.spark:spark-streaming-kafka-0-10_2.12:3.4.1,org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.1,com.datastax.spark:spark-cassandra-connector_2.12:3.4.0 pyspark-shell"
 
 # Kafka configuration
 bootstrap_servers = "localhost:9092"
@@ -86,7 +86,7 @@ df = df.select(
 
 
 # song duration_ms is in milliseconds, so we replace it to seconds
-df = df.withColumn("song_length", (df.song_duration_ms / 1000).cast(DoubleType()))
+df = df.withColumn("song_length", (df.song_duration_ms / 1000).cast(FloatType()))
 
 # remove duration_ms column
 df = df.drop("song_duration_ms")
@@ -95,6 +95,9 @@ df = df.drop("song_duration_ms")
 # age is a string, so we cast it to integer
 df = df.withColumn("user_age", df.user_age.cast(IntegerType()))
 
-# write the data to the console
-query = df.writeStream.format("console").start()
-query.awaitTermination()
+# write the data to the cassandra database
+df.writeStream.option("spark.cassandra.connection.host", "localhost:9042").format(
+    "org.apache.spark.sql.cassandra"
+).options(keyspace="spotify_streaming", table="streams").option(
+    "checkpointLocation", "checkpoint"
+).start().awaitTermination()
