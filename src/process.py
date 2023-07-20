@@ -1,7 +1,7 @@
 import os
 
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, from_json, from_utc_timestamp, window
+from pyspark.sql import functions as f
 from pyspark.sql.types import (
     FloatType,
     IntegerType,
@@ -69,20 +69,20 @@ df = spark.readStream.format("kafka").options(**options).load()
 
 # make a new dataframe with the json data
 df = df.selectExpr("CAST(value AS STRING)")
-df = df.select(from_json(df.value, schema).alias("data")).select("data.*")
+df = df.select(f.from_json(df.value, schema).alias("data")).select("data.*")
 
 # flatten the user and song columns
 df = df.select(
-    col("user.name").alias("user_name"),
-    col("user.address").alias("user_address"),
-    col("user.age").alias("user_age"),
-    col("user.nationality").alias("user_nationality"),
-    col("song.artists").alias("song_artist"),
-    col("song.album_name").alias("song_album_name"),
-    col("song.track_name").alias("song_name"),
-    col("song.duration_ms").alias("song_duration_ms"),
-    col("song.track_genre").alias("song_genre"),
-    col("played_at").alias("song_played_at"),
+    f.col("user.name").alias("user_name"),
+    f.col("user.address").alias("user_address"),
+    f.col("user.age").alias("user_age"),
+    f.col("user.nationality").alias("user_nationality"),
+    f.col("song.artists").alias("song_artist"),
+    f.col("song.album_name").alias("song_album_name"),
+    f.col("song.track_name").alias("song_name"),
+    f.col("song.duration_ms").alias("song_duration_ms"),
+    f.col("song.track_genre").alias("song_genre"),
+    f.col("played_at").alias("song_played_at"),
 )
 
 
@@ -99,9 +99,8 @@ df = df.withColumn("user_age", df.user_age.cast(IntegerType()))
 # change played_at from UTC to KST
 df = df.withColumn(
     "song_played_at",
-    from_utc_timestamp(df.song_played_at, "Asia/Seoul").cast(TimestampType()),
+    f.from_utc_timestamp(df.song_played_at, "Asia/Seoul").cast(TimestampType()),
 )
-
 # write the data to the cassandra database
 df.writeStream.option("spark.cassandra.connection.host", "localhost:9042").format(
     "org.apache.spark.sql.cassandra"
@@ -110,23 +109,17 @@ df.writeStream.option("spark.cassandra.connection.host", "localhost:9042").forma
 ).start()
 
 
-windowed_df = df.withWatermark("song_played_at", "10 minutes")
-
-top_artist = windowed_df.groupBy(
-    "song_artist", window("song_played_at", "5 minutes")
-).count()
-
-top_artist = top_artist.select(
-    col("window.start").alias("window_start"),
-    col("window.end").alias("window_end"),
-    col("song_artist"),
-    col("count").cast(IntegerType()).alias("play_count"),
+df_top_artists = (
+    df.withWatermark("song_played_at", "1 minute")
+    .groupBy("song_artist")
+    .agg(f.avg("user_age").alias("user_age_avg"))
+    .withColumn("song_played_at", f.current_timestamp())
 )
 
-top_artist.writeStream.trigger(processingTime="1 minutes").foreachBatch(
+df_top_artists.writeStream.trigger(processingTime="5 seconds").foreachBatch(
     lambda batch_df, batch_id: batch_df.write.format("org.apache.spark.sql.cassandra")
     .option("checkpointLocation", "checkpoint_artist")
-    .options(keyspace="spotify_streaming", table="top_artists")
+    .options(keyspace="spotify_streaming", table="user_age")
     .mode("append")
     .save()
 ).outputMode("update").start()
