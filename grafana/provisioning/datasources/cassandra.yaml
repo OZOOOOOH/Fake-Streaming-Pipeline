@@ -1,0 +1,10 @@
+apiVersion: 1
+
+datasources:
+  - name: Apache Cassandra
+    type: hadesarchitect-cassandra-datasource
+    url: cassandra:9042
+    access: proxy
+    jsonData:
+      keyspace: spotify_streaming
+      consistency: ONE
