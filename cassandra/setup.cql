@@ -14,5 +14,13 @@ CREATE TABLE IF NOT EXISTS streams(
     song_genre text,
     song_length float,
     song_played_at timestamp,
-    PRIMARY KEY(user_name, song_played_at)
+    PRIMARY KEY((user_name), song_played_at)
+) WITH CLUSTERING ORDER BY (song_played_at DESC);
+
+
+CREATE TABLE IF NOT EXISTS user_age(
+    song_played_at timestamp,
+    song_artist text,
+    user_age_avg double,
+    PRIMARY KEY ((song_artist), song_played_at)
 ) WITH CLUSTERING ORDER BY (song_played_at DESC);
