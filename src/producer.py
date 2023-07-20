@@ -7,48 +7,65 @@ from faker import Faker
 from kafka import KafkaProducer
 
 
-def generate_user(fake) -> dict[str, str]:
-    return {
-        "name": fake.name(),
-        "address": fake.address(),
-        "age": str(fake.random_int(min=18, max=80)),
-        "nationality": fake.country(),
-    }
+class UserGenerator:
+    def __init__(self):
+        self.fake = Faker()
+
+    def generate(self) -> dict[str, str]:
+        return {
+            "name": self.fake.name(),
+            "address": self.fake.address(),
+            "age": str(self.fake.random_int(min=18, max=80)),
+            "nationality": self.fake.country(),
+        }
 
 
-def load_dataset() -> pd.DataFrame:
-    df = pd.read_csv(f"{Path(__file__).parent.parent}/data/dataset.csv")
-    selected_columns = [
-        "artists",
-        "album_name",
-        "track_name",
-        "duration_ms",
-        "track_genre",
-    ]
-    return df[selected_columns]
+class SongPicker:
+    def __init__(self, data_path: str):
+        df = pd.read_csv(data_path)
+        selected_columns = [
+            "artists",
+            "album_name",
+            "track_name",
+            "duration_ms",
+            "track_genre",
+        ]
+        self.songs = df[selected_columns]
+
+    def pick(self) -> dict[str, str]:
+        song = dict(self.songs.sample().iloc[0])
+        song["duration_ms"] = int(song["duration_ms"])
+        return song
 
 
-def pick_song(songs: pd.DataFrame) -> dict[str, str]:
-    song = dict(songs.sample().iloc[0])
-    song["duration_ms"] = int(song["duration_ms"])
-    return song
+class SpotifyStreamingSimulator:
+    def __init__(
+        self, user_generator: UserGenerator, song_picker: SongPicker, topic_name: str
+    ):
+        self.user_generator = user_generator
+        self.song_picker = song_picker
+        self.producer = KafkaProducer(
+            bootstrap_servers="localhost:9092",
+            value_serializer=lambda v: json.dumps(v).encode("utf-8"),
+        )
+        self.topic_name = topic_name
+
+    def simulate(self):
+        while True:
+            user = self.user_generator.generate()
+            song = self.song_picker.pick()
+            data = {
+                "user": user,
+                "song": song,
+                "played_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+            }
+            self.producer.send(self.topic_name, value=data)
 
 
 if __name__ == "__main__":
-    fake = Faker()
-    spotify_songs = load_dataset()
-
-    producer = KafkaProducer(
-        bootstrap_servers="localhost:9092",
-        value_serializer=lambda v: json.dumps(v).encode("utf-8"),
+    user_generator = UserGenerator()
+    song_picker = SongPicker(f"{Path(__file__).parent.parent}/data/dataset.csv")
+    simulator = SpotifyStreamingSimulator(
+        user_generator, song_picker, "spotify_streaming_topic"
     )
-
-    while True:
-        user = generate_user(fake)
-        song = pick_song(spotify_songs)
-        data = {
-            "user": user,
-            "song": song,
-            "played_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
-        }
-        producer.send("spotify_streaming_topic", value=data)
+    simulator.simulate()
