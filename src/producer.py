@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
+from config import Config
 from faker import Faker
 from kafka import KafkaProducer
 
@@ -45,7 +46,7 @@ class SpotifyStreamingSimulator:
         self.user_generator = user_generator
         self.song_picker = song_picker
         self.producer = KafkaProducer(
-            bootstrap_servers="localhost:9092",
+            bootstrap_servers=Config.KAFKA_BOOTSTRAP_SERVERS,
             value_serializer=lambda v: json.dumps(v).encode("utf-8"),
         )
         self.topic_name = topic_name
@@ -66,6 +67,6 @@ if __name__ == "__main__":
     user_generator = UserGenerator()
     song_picker = SongPicker(f"{Path(__file__).parent.parent}/data/dataset.csv")
     simulator = SpotifyStreamingSimulator(
-        user_generator, song_picker, "spotify_streaming_topic"
+        user_generator, song_picker, Config.KAFKA_SPOTIFY_TOPIC
     )
     simulator.simulate()

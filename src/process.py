@@ -1,5 +1,6 @@
 import os
 
+from config import Config
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as f
 from pyspark.sql.types import FloatType, IntegerType, TimestampType
@@ -8,24 +9,22 @@ from utils import get_schema
 
 class SpotifyStreamingProcessor:
     def __init__(self):
-        os.environ[
-            "PYSPARK_SUBMIT_ARGS"
-        ] = "--packages org.apache.spark:spark-streaming-kafka-0-10_2.12:3.4.1,org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.1,com.datastax.spark:spark-cassandra-connector_2.12:3.4.0 pyspark-shell"
+        os.environ["PYSPARK_SUBMIT_ARGS"] = Config.PYSPARK_SUBMIT_ARGS
 
         self.spark = (
-            SparkSession.builder.appName("read_spotify_streaming")
-            .config("spark.driver.bindAddress", "127.0.0.1")
-            .config("spark.driver.host", "127.0.0.1")
+            SparkSession.builder.appName(Config.SPARK_APP_NAME)
+            .config("spark.driver.bindAddress", Config.SPARK_DRIVER_BIND_ADDRESS)
+            .config("spark.driver.host", Config.SPARK_DRIVER_HOST)
             .getOrCreate()
         )
-        self.spark.sparkContext.setLogLevel("WARN")
+        self.spark.sparkContext.setLogLevel(Config.SPARK_LOG_LEVEL)
 
-    def read_kafka_stream(self, bootstrap_servers: str, topic: str) -> DataFrame:
+    def read_kafka_stream(self) -> DataFrame:
         options = {
-            "kafka.bootstrap.servers": bootstrap_servers,
-            "subscribe": topic,
-            "startingOffsets": "earliest",
-            "failOnDataLoss": "false",
+            "kafka.bootstrap.servers": Config.KAFKA_BOOTSTRAP_SERVERS,
+            "subscribe": Config.KAFKA_SPOTIFY_TOPIC,
+            "startingOffsets": Config.KAFKA_STARTING_OFFSETS,
+            "failOnDataLoss": Config.KAFKA_FAIL_ON_DATA_LOSS,
         }
 
         schema = get_schema()
@@ -37,7 +36,7 @@ class SpotifyStreamingProcessor:
         return df
 
     @staticmethod
-    def process_data(df: DataFrame) -> DataFrame:
+    def process_df(df: DataFrame) -> DataFrame:
         df = df.select(
             f.col("user.name").alias("user_name"),
             f.col("user.address").alias("user_address"),
@@ -51,53 +50,59 @@ class SpotifyStreamingProcessor:
             f.col("played_at").alias("song_played_at"),
         )
 
-        df = df.drop("song_duration_ms")
         df = df.withColumn(
             "song_length", (df.song_duration_ms / 1000).cast(FloatType())
         )
         df = df.withColumn("user_age", df.user_age.cast(IntegerType()))
         df = df.withColumn(
             "song_played_at",
-            f.from_utc_timestamp(df.song_played_at, "Asia/Seoul").cast(TimestampType()),
+            f.from_utc_timestamp(df.song_played_at, Config.TIMEZONE).cast(
+                TimestampType()
+            ),
         )
+        df = df.drop("song_duration_ms")
 
         return df
 
-    def write_to_cassandra(self, df: DataFrame, table: str) -> None:
+    def write_streams2cassandra(self, df: DataFrame) -> None:
         df.writeStream.option(
-            "spark.cassandra.connection.host", "localhost:9042"
+            "spark.cassandra.connection.host", Config.CASSANDRA_CONNECTION_HOST
         ).format("org.apache.spark.sql.cassandra").options(
-            keyspace="spotify_streaming", table=table
+            keyspace=Config.CASSANDRA_KEYSPACE, table=Config.STREAMS_TABLE
         ).option(
-            "checkpointLocation", "checkpoint"
+            "checkpointLocation", Config.CHECKPOINT_LOCATION
         ).start()
 
-    def compute_top_artists(self, df: DataFrame) -> None:
-        df_top_artists = (
+    def get_listener_age(self, df: DataFrame) -> DataFrame:
+        listener_age = (
             df.withWatermark("song_played_at", "1 minute")
             .groupBy("song_artist")
             .agg(f.avg("user_age").alias("user_age_avg"))
             .withColumn("song_played_at", f.current_timestamp())
         )
 
-        df_top_artists.writeStream.trigger(processingTime="5 seconds").foreachBatch(
+        return listener_age
+
+    def write_listener_age2cassandra(self, listener_age: DataFrame) -> None:
+        listener_age.writeStream.trigger(processingTime="5 seconds").foreachBatch(
             lambda batch_df, batch_id: batch_df.write.format(
                 "org.apache.spark.sql.cassandra"
             )
-            .option("checkpointLocation", "checkpoint_artist")
-            .options(keyspace="spotify_streaming", table="user_age")
+            .option("checkpointLocation", Config.CHECKPOINT_ARTIST_LOCATION)
+            .options(keyspace=Config.CASSANDRA_KEYSPACE, table=Config.USER_AGE_TABLE)
             .mode("append")
             .save()
         ).outputMode("update").start()
 
-    def process(self, bootstrap_servers: str, topic: str) -> None:
-        df = self.read_kafka_stream(bootstrap_servers, topic)
-        df = self.process_data(df)
-        self.write_to_cassandra(df, "streams")
-        self.compute_top_artists(df)
+    def process(self) -> None:
+        df = self.read_kafka_stream()
+        df = self.process_df(df)
+        self.write_streams2cassandra(df)
+        df_top_artists = self.get_listener_age(df)
+        self.write_listener_age2cassandra(df_top_artists)
         self.spark.streams.awaitAnyTermination()
 
 
 if __name__ == "__main__":
     processor = SpotifyStreamingProcessor()
-    processor.process("localhost:9092", "spotify_streaming_topic")
+    processor.process()
