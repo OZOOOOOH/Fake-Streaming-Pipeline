@@ -78,7 +78,7 @@ class SpotifyStreamingProcessor:
             df.withWatermark("song_played_at", "1 minute")
             .groupBy("song_artist")
             .agg(f.avg("user_age").alias("user_age_avg"))
-            .withColumn("song_played_at", f.current_timestamp())
+            .withColumn("processing_timestamp", f.current_timestamp())
         )
 
         return listener_age

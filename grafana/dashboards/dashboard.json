@@ -108,7 +108,7 @@
           "queryType": "query",
           "rawQuery": true,
           "refId": "A",
-          "target": "select song_artist, CAST(user_age_avg AS double), song_played_at from spotify_streaming.user_age where song_artist IN ('Anupam Roy', 'Still Woozy', 'BTS') and \nsong_played_at>$__timeFrom and song_played_at<$__timeTo ALLOW FILTERING"
+          "target": "select song_artist, CAST(user_age_avg AS double), processing_timestamp from spotify_streaming.user_age where song_artist IN ('Anupam Roy', 'Still Woozy', 'BTS') and \nprocessing_timestamp>$__timeFrom and processing_timestamp<$__timeTo ALLOW FILTERING"
         }
       ],
       "title": "Average listener age",
